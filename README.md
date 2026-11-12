@@ -70,45 +70,49 @@ validation rejection, `/api/info`, the health endpoint and the frontend page.
 Enabled at http://localhost:8081/h2-console — JDBC URL `jdbc:h2:mem:taskdb`,
 user `sa`, no password. Data is in memory and resets on every restart.
 
-## CI/CD on Google Cloud (GitHub Actions)
+## CI/CD on Azure (GitHub Actions)
 
-`.github/workflows/gcp-deploy.yml` runs three jobs:
+`.github/workflows/azure-deploy.yml` runs three jobs:
 
-1. **Build and Test** — `mvn verify` on every push and pull request.
-2. **Docker Build and Push** — on pushes to `main`, builds the image and pushes it
-   to Artifact Registry as `<region>-docker.pkg.dev/<project>/<repo>/taskapi:<sha>` and `:latest`.
-3. **Deploy to GKE with Ansible** — connects `kubectl` to the GKE cluster and runs
+1. **Build and Test**: `mvn verify` on every push and pull request.
+2. **Docker Build and Push to ACR**: on pushes to `main`, pushes
+   `taskapicicdparin.azurecr.io/taskapi:<commit-sha>` and `:latest`.
+3. **Deploy to AKS with Ansible**: connects `kubectl` to the AKS cluster and runs
    `ansible/deploy.yml`, which writes the new image into `k8s/deployment.yaml`,
-   applies `k8s/`, waits for the rollout, then checks `/actuator/health` on the
-   LoadBalancer IP and prints the app URL.
+   applies `k8s/`, records the image in the rollout history, waits for the
+   rollout, then checks `/actuator/health` on the LoadBalancer IP and prints the URL.
 
-### One-time GCP setup
+### One-time Azure setup (Azure Cloud Shell, Bash)
 
 ```bash
-gcloud services enable artifactregistry.googleapis.com container.googleapis.com
-gcloud artifacts repositories create taskapi --repository-format=docker --location=asia-south1
-gcloud container clusters create-auto taskapi-gke --region=asia-south1
-gcloud iam service-accounts create github-deployer
-gcloud projects add-iam-policy-binding <PROJECT_ID> --member=serviceAccount:github-deployer@<PROJECT_ID>.iam.gserviceaccount.com --role=roles/artifactregistry.writer
-gcloud projects add-iam-policy-binding <PROJECT_ID> --member=serviceAccount:github-deployer@<PROJECT_ID>.iam.gserviceaccount.com --role=roles/container.developer
-gcloud iam service-accounts keys create key.json --iam-account=github-deployer@<PROJECT_ID>.iam.gserviceaccount.com
+az group create --name taskapi-rg --location centralindia
+az aks create --resource-group taskapi-rg --name taskapi-aks --node-count 1 --node-vm-size Standard_B2s --generate-ssh-keys --attach-acr taskapicicdparin
 ```
+
+If the registry `taskapicicdparin` is in another resource group, `--attach-acr`
+still works by name. Give the GitHub app registration (the one behind
+`AZURE_CLIENT_ID`) the **Contributor** role on `taskapi-rg`.
 
 ### GitHub settings
 
-The values below are already set as defaults in the workflow's `env` block
-(project `cia2-513606`). Only the secret is required; adding a repository
-variable with the same name under **Settings → Secrets and variables → Actions**
-overrides the default.
-
-| Kind | Name | Example |
+| Kind | Name | Default in workflow |
 |---|---|---|
-| Variable | `GCP_PROJECT_ID` | `my-project-123456` |
-| Variable | `GCP_REGION` | `asia-south1` |
-| Variable | `GAR_REPOSITORY` | `taskapi` |
-| Variable | `GKE_CLUSTER` | `taskapi-gke` |
-| Variable | `GKE_LOCATION` | optional — cluster region/zone, defaults to `GCP_REGION` |
-| Secret | `GCP_SA_KEY` | full contents of `key.json` |
+| Secret | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | (required) |
+| Variable | `ACR_NAME` | `taskapicicdparin` |
+| Variable | `AKS_RESOURCE_GROUP` | `taskapi-rg` |
+| Variable | `AKS_CLUSTER` | `taskapi-aks` |
 
 The deployment runs **one replica** on purpose: tasks are stored in an
 in-memory H2 database per pod, so several replicas would each show a different list.
+
+### Versions and rollback
+
+Each deploy creates a new Kubernetes revision (old ones are kept,
+`revisionHistoryLimit: 10`). Bump `app.version` in `application.properties` to
+see the change on the web page, then:
+
+```bash
+kubectl rollout history deployment/taskapi
+kubectl rollout undo deployment/taskapi                  # back to the previous version
+kubectl rollout undo deployment/taskapi --to-revision=2  # or a specific one
+```

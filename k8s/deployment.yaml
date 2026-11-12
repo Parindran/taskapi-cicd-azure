@@ -8,6 +8,8 @@ spec:
   # One replica: tasks live in an in-memory H2 database inside each pod,
   # so more replicas would each show a different task list.
   replicas: 1
+  # Keep old ReplicaSets so earlier versions can be rolled back to.
+  revisionHistoryLimit: 10
   selector:
     matchLabels:
       app: taskapi
@@ -23,13 +25,11 @@ spec:
           ports:
             - containerPort: 8081
           resources:
-            # Autopilot sets limits equal to requests; 0.5 CPU keeps
-            # Spring Boot's start-up time reasonable.
+            # 0.5 CPU keeps Spring Boot's start-up time reasonable.
             requests:
               cpu: 500m
-              memory: 1Gi
+              memory: 768Mi
             limits:
-              cpu: 500m
               memory: 1Gi
           # Gives the app up to 5 minutes to start before the other probes run,
           # so a slow first boot is not mistaken for a crash.

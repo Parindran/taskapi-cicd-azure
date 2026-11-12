@@ -1,5 +1,5 @@
 # Deploys the Task API to whatever cluster kubectl currently points at.
-# The GitHub Actions workflow connects kubectl to GKE before running this.
+# The GitHub Actions workflow connects kubectl to AKS before running this.
 - name: Deploy Task API to Kubernetes
   hosts: local
   gather_facts: false
@@ -16,6 +16,9 @@
 
     - name: Apply the Kubernetes manifests
       ansible.builtin.command: kubectl apply -f {{ k8s_dir }}
+
+    - name: Record the image in the revision history (kubectl rollout history)
+      ansible.builtin.command: kubectl annotate deployment/taskapi kubernetes.io/change-cause="deployed {{ image }}" --overwrite
 
     - name: Wait until the new pods are running
       ansible.builtin.command: kubectl rollout status deployment/taskapi --timeout=600s

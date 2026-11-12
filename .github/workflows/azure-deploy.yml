@@ -1,16 +1,15 @@
-name: TaskAPI CI/CD (Google Cloud)
+name: TaskAPI CI/CD (Azure)
 
 # Build + test on every push and PR; on pushes to main also push the image
-# to Artifact Registry and deploy it to GKE with Ansible.
+# to Azure Container Registry and deploy it to AKS with Ansible.
 #
-# GCP settings are set in `env` below. A repository VARIABLE with the same
-# name (Settings > Secrets and variables > Actions > Variables) overrides each:
-#   GCP_PROJECT_ID, GCP_REGION, GAR_REPOSITORY, GKE_CLUSTER,
-#   GKE_LOCATION (cluster region or zone, defaults to GCP_REGION)
+# Azure settings are set in `env` below. A repository VARIABLE with the same
+# name (Settings > Secrets and variables > Actions > Variables) overrides each.
 #
-# Repository SECRET:
-#   GCP_SA_KEY       JSON key of a service account with roles
-#                    Artifact Registry Writer + Kubernetes Engine Developer
+# Repository SECRETS (OpenID Connect login, no password stored):
+#   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# The app registration needs the Contributor role on the resource group
+# (covers pushing to ACR and getting AKS credentials).
 
 on:
   push:
@@ -21,14 +20,13 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
-  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'cia2-513606' }}
-  GCP_REGION: ${{ vars.GCP_REGION || 'asia-south1' }}
-  GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY || 'taskapi' }}
-  GKE_CLUSTER: ${{ vars.GKE_CLUSTER || 'taskapi-gke' }}
-  GKE_LOCATION: ${{ vars.GKE_LOCATION || vars.GCP_REGION || 'asia-south1' }}
-  IMAGE: ${{ vars.GCP_REGION || 'asia-south1' }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID || 'cia2-513606' }}/${{ vars.GAR_REPOSITORY || 'taskapi' }}/taskapi
+  ACR_NAME: ${{ vars.ACR_NAME || 'taskapicicdparin' }}
+  AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP || 'taskapi-rg' }}
+  AKS_CLUSTER: ${{ vars.AKS_CLUSTER || 'taskapi-aks' }}
+  IMAGE: ${{ vars.ACR_NAME || 'taskapicicdparin' }}.azurecr.io/taskapi
 
 jobs:
   build-and-test:
@@ -56,7 +54,7 @@ jobs:
           path: target/surefire-reports/
 
   docker-push:
-    name: Docker Build and Push
+    name: Docker Build and Push to ACR
     needs: build-and-test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -64,16 +62,15 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Log in to Azure
+        uses: azure/login@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
+      - name: Log in to Azure Container Registry
+        run: az acr login --name $ACR_NAME
 
       - name: Build Docker image
         run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
@@ -84,24 +81,25 @@ jobs:
           docker push $IMAGE:latest
 
   deploy:
-    name: Deploy to GKE with Ansible
+    name: Deploy to AKS with Ansible
     needs: docker-push
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Log in to Azure
+        uses: azure/login@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Connect kubectl to GKE
-        uses: google-github-actions/get-gke-credentials@v2
+      - name: Connect kubectl to AKS
+        uses: azure/aks-set-context@v4
         with:
-          cluster_name: ${{ env.GKE_CLUSTER }}
-          location: ${{ env.GKE_LOCATION }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER }}
 
       - name: Install Ansible
         run: pipx install ansible-core
