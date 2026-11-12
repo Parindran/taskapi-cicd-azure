@@ -108,3 +108,20 @@ jobs:
 
       - name: Deploy with Ansible
         run: ansible-playbook -i ansible/inventory.ini ansible/deploy.yml -e image="$IMAGE:${{ github.sha }}"
+
+      - name: Show pod status and logs (on failure)
+        if: failure()
+        run: |
+          echo "::group::Pods"
+          kubectl get pods -l app=taskapi -o wide || true
+          echo "::endgroup::"
+          echo "::group::Pod details"
+          kubectl describe pods -l app=taskapi || true
+          echo "::endgroup::"
+          echo "::group::Recent events"
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          echo "::endgroup::"
+          echo "::group::App logs"
+          kubectl logs -l app=taskapi --tail=100 --all-containers || true
+          kubectl logs -l app=taskapi --tail=100 --previous || true
+          echo "::endgroup::"
