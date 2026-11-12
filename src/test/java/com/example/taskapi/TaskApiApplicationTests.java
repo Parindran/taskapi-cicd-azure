@@ -58,4 +58,25 @@ class TaskApiApplicationTests {
                         .content("{\"title\":\"  \",\"completed\":false}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void reportsAppInfo() throws Exception {
+        mockMvc.perform(get("/api/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("taskapi"))
+                .andExpect(jsonPath("$.version").isString());
+    }
+
+    @Test
+    void healthEndpointIsUp() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void servesTheFrontend() throws Exception {
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk());
+    }
 }

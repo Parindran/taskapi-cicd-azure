@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Task API</title>
+    <style>
+        :root {
+            --bg: #f4f6fb; --card: #ffffff; --text: #1d2433; --muted: #6b7385;
+            --accent: #2f6fed; --done: #1f9d55; --danger: #d64545; --border: #e2e6ef;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg); color: var(--text);
+        }
+        main { max-width: 640px; margin: 40px auto; padding: 0 16px; }
+        header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+        h1 { margin: 0; font-size: 1.8rem; }
+        .meta { color: var(--muted); font-size: .85rem; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-top: 20px; }
+        form { display: flex; gap: 8px; }
+        input[type=text] { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; min-width: 0; }
+        button { border: 0; border-radius: 8px; padding: 10px 16px; font-size: .95rem; cursor: pointer; }
+        .primary { background: var(--accent); color: #fff; }
+        .filters { display: flex; gap: 6px; margin-bottom: 12px; }
+        .filters button { background: var(--bg); color: var(--muted); padding: 6px 12px; }
+        .filters button.active { background: var(--accent); color: #fff; }
+        ul { list-style: none; margin: 0; padding: 0; }
+        li { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+        li:last-child { border-bottom: 0; }
+        li span { flex: 1; word-break: break-word; }
+        li.completed span { text-decoration: line-through; color: var(--muted); }
+        input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--done); }
+        .delete { background: transparent; color: var(--danger); padding: 4px 8px; }
+        .empty, .error { color: var(--muted); text-align: center; padding: 16px 0; }
+        .error { color: var(--danger); }
+        .stats { color: var(--muted); font-size: .85rem; margin-top: 12px; }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>Task API</h1>
+        <div class="meta" id="info">loading…</div>
+    </header>
+
+    <div class="card">
+        <form id="add-form">
+            <input type="text" id="title" placeholder="What needs doing?" maxlength="120" required>
+            <button class="primary" type="submit">Add</button>
+        </form>
+        <div class="error" id="form-error" hidden></div>
+    </div>
+
+    <div class="card">
+        <div class="filters">
+            <button data-filter="" class="active">All</button>
+            <button data-filter="false">Open</button>
+            <button data-filter="true">Done</button>
+        </div>
+        <ul id="list"></ul>
+        <div class="stats" id="stats"></div>
+    </div>
+</main>
+
+<script>
+    const list = document.getElementById('list');
+    const stats = document.getElementById('stats');
+    const formError = document.getElementById('form-error');
+    let filter = '';
+
+    async function api(path, options = {}) {
+        const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return res.status === 204 ? null : res.json();
+    }
+
+    async function load() {
+        try {
+            const tasks = await api('/api/tasks' + (filter ? `?completed=${filter}` : ''));
+            render(tasks);
+        } catch (e) {
+            list.innerHTML = `<li class="error">Could not load tasks: ${e.message}</li>`;
+        }
+    }
+
+    function render(tasks) {
+        list.innerHTML = '';
+        if (tasks.length === 0) {
+            list.innerHTML = '<li class="empty">No tasks here.</li>';
+        }
+        for (const t of tasks) {
+            const li = document.createElement('li');
+            li.className = t.completed ? 'completed' : '';
+
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = t.completed;
+            box.onchange = () => update(t, box.checked);
+
+            const span = document.createElement('span');
+            span.textContent = t.title;
+
+            const del = document.createElement('button');
+            del.className = 'delete';
+            del.textContent = 'Delete';
+            del.onclick = () => remove(t.id);
+
+            li.append(box, span, del);
+            list.appendChild(li);
+        }
+        const done = tasks.filter(t => t.completed).length;
+        stats.textContent = `${tasks.length} task(s), ${done} done`;
+    }
+
+    async function update(task, completed) {
+        await api(`/api/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify({ title: task.title, completed }) });
+        load();
+    }
+
+    async function remove(id) {
+        await api(`/api/tasks/${id}`, { method: 'DELETE' });
+        load();
+    }
+
+    document.getElementById('add-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const input = document.getElementById('title');
+        formError.hidden = true;
+        try {
+            await api('/api/tasks', { method: 'POST', body: JSON.stringify({ title: input.value, completed: false }) });
+            input.value = '';
+            load();
+        } catch (err) {
+            formError.textContent = `Could not add task: ${err.message}`;
+            formError.hidden = false;
+        }
+    };
+
+    document.querySelectorAll('.filters button').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            filter = btn.dataset.filter;
+            load();
+        };
+    });
+
+    api('/api/info')
+        .then(i => document.getElementById('info').textContent = `v${i.version} · served by ${i.host}`)
+        .catch(() => document.getElementById('info').textContent = '');
+
+    load();
+</script>
+</body>
+</html>

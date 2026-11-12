@@ -1,0 +1,40 @@
+# Deploys the Task API to whatever cluster kubectl currently points at.
+# The GitHub Actions workflow connects kubectl to GKE before running this.
+- name: Deploy Task API to Kubernetes
+  hosts: local
+  gather_facts: false
+  vars:
+    image: taskapi:local
+    k8s_dir: "{{ playbook_dir }}/../k8s"
+
+  tasks:
+    - name: Put the new image into deployment.yaml
+      ansible.builtin.replace:
+        path: "{{ k8s_dir }}/deployment.yaml"
+        regexp: "image: .*"
+        replace: "image: {{ image }}"
+
+    - name: Apply the Kubernetes manifests
+      ansible.builtin.command: kubectl apply -f {{ k8s_dir }}
+
+    - name: Wait until the new pods are running
+      ansible.builtin.command: kubectl rollout status deployment/taskapi --timeout=600s
+
+    - name: Get the app's public IP
+      ansible.builtin.command: kubectl get service taskapi -o jsonpath={.status.loadBalancer.ingress[0].ip}
+      register: ip
+      until: ip.stdout != ""
+      retries: 30
+      delay: 10
+
+    - name: Check the app is healthy
+      ansible.builtin.uri:
+        url: "http://{{ ip.stdout }}/actuator/health"
+      register: health
+      until: health.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Show the app URL
+      ansible.builtin.debug:
+        msg: "App is running at http://{{ ip.stdout }}"
