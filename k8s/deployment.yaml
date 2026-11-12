@@ -7,7 +7,7 @@ metadata:
 spec:
   # One replica: tasks live in an in-memory H2 database inside each pod,
   # so more replicas would each show a different task list.
-  replicas: 1
+  replicas: 2
   # Keep old ReplicaSets so earlier versions can be rolled back to.
   revisionHistoryLimit: 10
   selector:
