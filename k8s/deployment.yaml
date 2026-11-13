@@ -8,13 +8,14 @@ spec:
   # Note: tasks live in an in-memory H2 database inside each pod, so each
   # replica keeps its own task list.
   replicas: 2
-  # Roll out one new pod at a time and never drop below 2 ready pods,
-  # so an update needs room for at most 3 pods on the node.
+  # The single node is nearly full of Azure system pods, so an update replaces
+  # pods one at a time (remove one old, then start one new) instead of adding
+  # an extra pod first. The app never needs room for more than 2 pods.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   # Keep old ReplicaSets so earlier versions can be rolled back to.
   revisionHistoryLimit: 10
   selector:
