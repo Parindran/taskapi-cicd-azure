@@ -22,6 +22,12 @@ permissions:
   contents: read
   id-token: write
 
+# Only one run per branch at a time: a newer push cancels an older run still in
+# progress, so two deploys never apply different manifests to AKS at once.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   ACR_NAME: ${{ vars.ACR_NAME || 'taskapicicdparin' }}
   AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP || 'taskapi-rg' }}
