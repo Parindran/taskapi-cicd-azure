@@ -5,9 +5,16 @@ metadata:
   labels:
     app: taskapi
 spec:
-  # One replica: tasks live in an in-memory H2 database inside each pod,
-  # so more replicas would each show a different task list.
+  # Note: tasks live in an in-memory H2 database inside each pod, so each
+  # replica keeps its own task list.
   replicas: 2
+  # Roll out one new pod at a time and never drop below 2 ready pods,
+  # so an update needs room for at most 3 pods on the node.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   # Keep old ReplicaSets so earlier versions can be rolled back to.
   revisionHistoryLimit: 10
   selector:
@@ -20,15 +27,17 @@ spec:
     spec:
       containers:
         - name: taskapi
-          # Replaced with the Artifact Registry image by ansible/deploy.yml
+          # Replaced with the ACR image by ansible/deploy.yml
           image: taskapi:local
           ports:
             - containerPort: 8081
           resources:
-            # 0.5 CPU keeps Spring Boot's start-up time reasonable.
+            # Small CPU reservation so several pods fit on the single
+            # Standard_D2_v4 node (Azure's system pods already reserve ~1.35 CPU).
+            # No CPU limit, so start-up can still use any spare CPU.
             requests:
-              cpu: 500m
-              memory: 768Mi
+              cpu: 100m
+              memory: 512Mi
             limits:
               memory: 1Gi
           # Gives the app up to 5 minutes to start before the other probes run,
